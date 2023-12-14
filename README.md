@@ -32,7 +32,7 @@ Inside the **chu-and-stull_nonlinear-stature** folder, you should find the follo
 
 * [data](data) - A folder containing the original subsetted data from SVAD and subsequent files after data manipulation  
 * [results](results) - A folder housing the resulting files from all analyses  
-* [documentation](chu-and-stull_nonlinear-stature-vignette.Rmd) - A RMarkdown file containing all code and analyses to replicate publication results. To view a rendered .HTML version of this file, [click HERE](https://rpubs.com/elainechu/chu-and-stull_nonlinear-stature)  
+* [documentation](chu-and-stull_nonlinear-stature_vignette.Rmd) - A RMarkdown file containing all code and analyses to replicate publication results. To view a rendered .HTML version of this file, [click HERE](https://rpubs.com/elainechu/chu-and-stull_nonlinear-stature)  
 * [elaine_theme](elaine_theme.R) - A personalized theme for plots using `ggplot2`  
 
 
