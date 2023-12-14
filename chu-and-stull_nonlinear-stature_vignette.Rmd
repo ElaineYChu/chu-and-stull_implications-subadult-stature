@@ -1,0 +1,732 @@
+---
+title: "Full Documentation For: Improving Subadult Stature Estimation for the Biological Profile"
+author: "Elaine Y. Chu"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  rmdformats::robobook:
+    toc_float: false
+---
+
+```{r Global Chunk, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, warning = FALSE, fig.path='pub_figs/', fig.ext='png', fig.width=10, fig.height=6, dpi=600)
+```
+
+# Overview
+
+This research compendium provides code and steps needed to replicate the results of the publication:
+
+>Chu, E.Y. & Stull, K.E. (In review). Improving subadult stature estimation for the biological profile. American Journal of Biological Anthropology.
+
+To run the code for this paper locally, please ensure that [R](https://cran.r-project.org/), and optionally [RStudio](https://posit.co/), are installed on your local system.
+
+Additionally, the following packages are used and should be installed using `install.packages("package_name")`:  
+* [tidyverse](https://www.tidyverse.org/)  
+* [magrittr](https://cran.r-project.org/web/packages/magrittr/vignettes/magrittr.html)  
+* [caret](https://topepo.github.io/caret/)  
+* [car](https://cran.r-project.org/web/packages/car/car.pdf) 
+* [gridExtra](https://bookdown.org/rdpeng/RProgDA/the-grid-package.html)  
+
+### How to cite
+
+Please cite this compendium as: 
+
+> Chu, E.Y. & Stull, K.E. (2023). Compendium of R code for "Improving subadult stature estimation for the biological profile". Accessed [Current Date].
+
+## The Data
+
+All data are from the [Subadult Virtual Anthropology Database](https://www.unr.edu/anthropology/research-and-facilities/subadult-database). Specifically, this projects uses data from the United States (U.S.) which can be downloaded [HERE](https://doi.org/10.5281/zenodo.5193208). For this specific analysis, the U.S. data were filtered for individuals who had at least one long bone measurement and had known stature. Additionally, the data were visually checked for outliers and removed. The final data are provided in a GitHub repository, which can be accessed at:  [https://github.com/ElaineYChu/chu-and-stull_nonlinear-stature](https://github.com/ElaineYChu/chu-and-stull_nonlinear-stature). Instructions for "cloning the repository" can be found in the README.
+
+## Organization
+
+This document is divided into three sections:  
+1. [Data Manipulation](#munge)  
+2. [Data Analysis](#analyze)  
+3. [Data Visualization](#viz)  
+
+## Setup
+
+After cloning the repository to your own system, the following code is used to set up your local R/RStudio environment:  
+
+```{r Setup, eval=T, message=F}
+rm(list=ls())  # clears the global environment
+
+## Check that the cloned repository is set was the working directory
+if (!(grepl("chu-and-stull_nonlinear-stature", getwd()))) {
+  stop("Please check your working directory")
+}
+
+## Load required libraries
+library(tidyverse)
+library(magrittr)
+library(caret)
+library(car)
+library(gridExtra)
+library(ggrepel)
+
+## Initialize some objects for visualizations
+source("elaine_theme.R")
+colors <- c("#073b4c","#0b6583","#43c4ef","#06efb1",
+            "#ffd166","#ef436b","#cccccc","#444444")
+xlab <- "Age (years)"
+
+## Initialize seed from random.org
+seed <- 167416
+
+```
+
+# Data Manipulation {#munge}
+
+## 1. Import Data  
+
+* Located in **data** folder  
+* Stored as .rds file  
+
+```{r import data}
+og <- readRDS("data/US_0-21_FINAL.rds")  # original U.S. data
+
+og$stature <- og$stature / 10  # convert stature from mm to cm
+og$upper <- og$HDL + og$RDL  # create upper limb length
+og$lower <- og$FDL + og$TDL  # create lower limb length
+```
+
+## 2. Split into Training and Testing Sets  
+
+* 80% Training and 20% Testing  
+* Uses `createDataPartition()` from package *caret*  
+
+```{r  train and test}
+base <- og %>% filter(!is.na(stature)) %>% droplevels()  # must have stature
+
+set.seed(seed)  # for data reproducibility
+idx <- createDataPartition(base$SEX, p=0.8, list=F)
+train <- base[idx, ]  # Pooled training set
+test <- base[-idx, ]  # Pooled testing set
+train_F <- train %>% filter(SEX=="F")  # Female training set
+train_M <- train %>% filter(SEX=="M")  # Male training set
+test_F <- train %>% filter(SEX=="F")  # Female training set
+test_M <- train %>% filter(SEX=="M")  # Male training set
+
+## Store resulting sets in data folder
+saveRDS(train, "data/train.rds")  
+saveRDS(test, "data/test.rds")
+saveRDS(train_F, "data/train_F.rds")
+saveRDS(train_M, "data/train_M.rds")
+saveRDS(test_F, "data/test_F.rds")
+saveRDS(test_M, "data/test_M.rds")
+```
+
+```{r import train and test for demonstrations, eval=T, echo=F}
+train <- readRDS("data/train.rds")
+test <- readRDS("data/test.rds")
+```
+
+
+## 3. Define Columns that Contain Long Bone Measurements  
+* Column numbers  
+* Give them better (more descriptive) labels  
+
+```{r lb columns, eval=T}
+lb_vars <- 9:28
+
+lb_labels <- c("Femur Length (mm)",
+               "Femur Midshaft Breadth (mm)",
+               "Femur Distal Breadth (mm)",
+               "Tibia Length (mm)",
+               "Tibia Proximal Breadth (mm)",
+               "Tibia Midshaft Breadth (mm)",
+               "Tibia Distal Breadth (mm)",
+               "Fibula Length (mm)",
+               "Humerus Length (mm)",
+               "Humerus Proximal Breadth (mm)",
+               "Humers Midshaft Breadth (mm)",
+               "Humerus Distal Breadth (mm)",
+               "Radius Length (mm)",
+               "Radius Proximal Breadth (mm)",
+               "Radius Midshaft Breadth (mm)",
+               "Radius Distal Breadth (mm)",
+               "Ulna Length (mm)",
+               "Ulna Midshaft Breadth (mm)",
+               "Upper Limb Length (mm)",
+               "Lower Limb Length (mm)")
+```
+
+
+# Data Analysis {#analyze}
+The analysis portion of this document only demonstrates the entire process using the pooled sample. The same process was conducted for female- and male-only samples as well. The only difference in the code is the use of either `train_F` or `train_M` for training the models instead of `train`, and `test_F` or `test_M` for testing models instead of using `test`. Any additional tweaks (such as in the correlation coefficients calculation) are provided as comments in the code.
+
+## 1. Calculate Correlation Coefficients (Kendall's Tau)
+
+* between long bone measurements and stature
+
+```{r correlations-p}
+#data_F <- rbind(train_F, test_F)
+#data_M <- rbind(train_M, test_M)
+
+cor_mat <- cor(base[lb_vars], base["stature"], method="kendall", use="complete.obs")  
+cor_mat <- as.data.frame(cor_mat)  # convert to data.frame
+cor_mat$var <- rownames(cor_mat)  # extract variable names
+colnames(cor_mat) <- c("r","var")  # rename columns  
+
+cor_mat <- cor_mat[order(cor_mat$r, decreasing=T),]  # reorder by decreasing r
+
+write.csv(cor_mat, "results/correlations_full.csv", row.names=F)  # store as .csv
+
+```
+
+
+## 2. Stature Estimation Equations  
+
+**3 Types of Regression: **  
+A. Linear: $y=mx+b$ - Used for *all* measurements  
+B. 3-Parameter Exponential (similar to Power Law): $y=a-be^{cx}$ - Used for *length* measurements  
+C. 3-Parameter Logistic (sigmoidal / S-shape): $y=\frac{a}{(1+be^{−cx})}$ - Used for *breadth* measurements  
+
+* Pooled, Female-Only, Male-Only models  
+* In Total: **116 Models**  
+
+### 2A. Linear Models  
+
+* Univariate models + one (1) stepwise model per data set  
+
+#### Univariate models  
+
+```{r lm-p}
+lm_uni_models <- list()  # initialize list for storing models
+
+## Loop through each measurement and train univariate linear model
+for(i in lb_vars) {
+  var <- names(train)[i]
+  
+  lm_uni_models[[var]] <- lm(paste("stature ~ ",var), data=train)
+}
+
+saveRDS(lm_uni_models, "results/univariate_linear_full.rds")
+```
+
+#### Stepwise Multiple Linear Models
+
+```{r stepwise-p, eval=T}
+dd_train <- train[-c(1:6,8,27:28)] %>% na.omit()  # complete cases only, keep only stature and individual long bone measurements
+
+set.seed(seed)
+train.control <- trainControl(method="cv", number=10)  # cross-validation
+
+step_lm <- train(stature ~., data=dd_train,
+                 method = "leapSeq",  # forward and backwards steps
+                 tuneGrid = data.frame(nvmax=1:18),
+                 trControl = train.control)  # stepwise linear testing
+
+```
+
+To demonstrate what the summary looks like and how to extract the desired model:
+
+```{r eval=T}
+step_lm$bestTune  # number of variables included in model
+summary(step_lm$finalModel)  # returns the best variable combination
+
+```
+
+From this output, recognize that the "best" number of variables from stepwise analysis is **five**, and that the selected variables are: FDB, FBDL, HDL, RMSB, UMSB.
+
+Train a multiple linear regression using the identified variables:
+```{r}
+step_lm <- lm(stature ~ FDB+FBDL+HDL+RMSB+UMSB, data=train)
+```
+
+
+As an example of what that output looks like:
+
+```{r eval=T, echo=F}
+step_lm <- readRDS("results/linear_models.rds")[["lm_step"]]
+summary(step_lm)
+```
+
+### 2B+C. Nonlinear Models  
+Two types of nonlinear models are generated for analyses:
+
+* 3 Parameter asymptotic exponential univariate (length) models  
+* 3 Parameter asymptotic logistic univariate (breadth) models  
+
+```{r Nonlinear length models}
+nls_uni <- list()  # create an empty list to store models
+
+set.seed(seed)  # set seed for reproducibility
+for(i in uni_vars) {
+  var <- names(train)[i]  # current variable in uni_vars
+  
+  if (grepl("DL|upper|lower", var)) {  # if length model...
+    df <- data.frame(stature=train$stature, x=train[[var]])
+    
+    nls_uni[[var]] <- tryCatch(
+    {
+      nls(stature~a-b*exp(-c*x), data=df, 
+          start=list(a=1500, b=1000, c=0.005))
+    },
+    error=function(x) {  # if an error is thrown, return the model as NA
+      return(NA)
+    }
+  )
+  } else {  # otherwise (breadth model)...
+    df <- data.frame(stature=train$stature, x=train[[var]])
+    
+    nls_uni[[var]] <- tryCatch(
+    {
+      nls(stature~a/(1+b*exp(-c*x)), data=df, 
+          start=list(a=1500, b=8, c=0.05))
+    },
+    error=function(x) {  # if an error is thrown, return the model as NA
+      return(NA)
+    }
+  )
+  }
+}
+
+saveRDS(nls_uni, "results/nonlinear_models.rds")
+```
+
+## 3. Model Comparisons - Accuracy and Precision
+
+Using the 20% hold-out testing data, evaluate the accuracy and precision of each model created. Accuracy is evaluated by the number of individuals for which their known stature falls within the 95% prediction interval generated by a model. Precision is the average difference between the known stature and point estimate of each testing individual generated by a model.
+
+First, initialize an empty dataframe to store the pertinent information:
+```{r performance setup, eval=F}
+perf_df <- data.frame(matrix(nrow=length(lm_models)+length(nls_models),
+                             ncol=5))
+names(perf_df) <- c("model","vars","test_acc","SEE","MAD")
+```
+
+This process is split in two - linear and nonlinear models. 
+
+### Linear Model Performance
+
+```{r linear perf}
+for (i in 1:length(lm_models)) {
+  var <- names(lm_models)[i]
+  df0 <- data.frame(matrix(nrow=nrow(test),ncol=5))
+  names(df0) <- c("medrec","stature","point","lo","hi")
+  df0$medrec <- test$SVAD_medrec
+  df0$stature <- test$stature
+  
+  model <- lm_models[[i]]  # extract current model
+  
+  pred <- predict(model, newdata=test[names(model$model)], interval="prediction")
+  
+  df0$point <- pred[,1]
+  df0$lo <- pred[,2]
+  df0$hi <- pred[,3]
+  df0$resid <- df0$stature - df0$point
+  
+  write.csv(df, paste0("results/",var,"_lm_predictions.csv"), row.names=F)
+  
+  df <- na.omit(df0)
+  
+  perf_df$model[i] <- "linear"
+  perf_df$vars[i] <- ifelse(length(names(model$coefficients)[-1])>1,
+                        paste(names(model$coefficients)[-1],collapse=", "),
+                        names(model$coefficients)[-1])
+  correct <- which(df$stature <= df$hi & df$stature >= df$lo)
+  perf_df$test_acc[i] <- length(correct) / nrow(df)
+  perf_df$SEE[i] <- sqrt(sum((df$point-df$stature)^2)/(nrow(df)-2))
+  perf_df$MAD[i] <- mad(df$resid, center=mean(df$resid))
+}
+
+write.csv(perf_df[1:length(lm_models),], "results/linear_performance.csv", 
+          row.names=F)
+```
+
+### Nonlinear Model Performance
+
+```{r nonlinear perf}
+set.seed(seed)
+add_row <- length(lm_models)
+
+for(i in 1:length(nls_models)) {
+  var <- names(nls_models)[i]
+  test0 <- na.omit(test[c("SVAD_medrec","stature",var)])
+  df0 <- data.frame(matrix(nrow=nrow(test0),ncol=5))
+  names(df0) <- c("medrec","stature","point","lo","hi")
+  df0$medrec <- test0$SVAD_medrec
+  df0$stature <- test0$stature
+  
+  model <- nls_models[[i]]  # extract current nonlinear model
+  
+  if(length(model)==1) {  # skip if the current model is NA
+    next
+  } 
+  
+  gc()  # clear memory
+  pred <- propagate::predictNLS(model=model, newdata=data.frame(x=test0[[var]]),
+                                interval="prediction")
+  
+  df0$point <- pred$summary[[1]]
+  df0$lo <- pred$summary[[5]]
+  df0$hi <- pred$summary[[6]]
+  df0$resid <- df0$stature - df0$point
+  
+  write.csv(df0, paste0("results/",var,"_nls_predictions.csv"), row.names=F)
+  
+}
+
+pred_files <- list.files("results","_nls_predictions.csv")
+
+for(j in 1:length(pred_files)) {
+  df0 <- read.csv(paste0("results/", pred_files[j]))
+  var <- stringr::str_remove(pred_files[j], "_nls_predictions.csv")
+  df <- na.omit(df0)
+       
+  perf_df$model[j+add_row] <- "nonlinear"
+  perf_df$vars[j+add_row] <- var
+  correct <- which(df$stature <= df$hi & df$stature >= df$lo)
+  perf_df$test_acc[j+add_row] <- length(correct) / nrow(df)
+  perf_df$SEE[j+add_row] <- sqrt(sum((df$point-df$stature)^2)/(nrow(df)-2))
+  perf_df$MAD[j+add_row] <- mad(df$resid, center=mean(df$resid))
+}
+
+
+write.csv(perf_df[perf_df$model=="nonlinear" & 
+                    !is.na(perf_df$vars),], 
+          "results/nonlinear_performance.csv", row.names=F)
+
+write.csv(perf_df[!is.na(perf_df$vars),], 
+          "results/model_performance.csv", row.names=F)
+```
+
+Munge perf_df to include more columns for better visualizations:
+
+```{r}
+perf_df %<>% mutate(measure = ifelse(grepl(",",vars),"Multiple",
+                                      ifelse(grepl("DL|upper|lower",vars),"Length",
+                                             ifelse(grepl("PB",vars),"Proximal",
+                                                    ifelse(grepl("MSB",vars),"Midshaft","Distal")))))
+perf_df %<>% mutate(bone = ifelse(grepl(",",vars),"Multivariate",
+                                   ifelse(grepl("upper",vars),"Upper Limb",
+                                          ifelse(grepl("lower",vars),"Lower Limb",
+                                                 ifelse(grepl("^FB",vars),"Fibula",
+                                                        ifelse(grepl("^F",vars),"Femur",
+                                                               ifelse(grepl("^T",vars),"Tibia",
+                                                                      ifelse(grepl("^H",vars),"Humerus",
+                                                                             ifelse(grepl("^R",vars),"Radius","Ulna")))))))))
+
+perf_df$model <- car::recode(perf_df$model, 
+                             "'linear'='Linear';'nonlinear'='Nonlinear'")
+perf_df$vars <- car::recode(perf_df$vars,
+                            "'lower'='Lower Limb';
+                            'upper'='Upper Limb';
+                            'FDB, FBDL, HDL, RMSB, UMSB'='Multivariate';
+                            'FDB, FBDL, HDL'='Multivariate'")
+
+
+perf_df$bone <- factor(perf_df$bone, levels=c("Humerus","Radius","Ulna",
+                                              "Upper Limb",
+                                              "Multivariate",
+                                              "Femur","Tibia","Fibula",
+                                              "Lower Limb"))
+perf_df$measure <- factor(perf_df$measure, levels=c("Length","Proximal",
+                                                    "Midshaft","Distal","Multiple"))
+saveRDS(perf_df, "results/performance_df.rds")
+
+```
+
+```{r eval=T, echo=F}
+perf_df <- readRDS("results/performance_df.rds")
+```
+
+## 4. Misclassifieds Investigation
+
+To evaluate whether the model predictions contain bias, run through all generated prediction files for pooled, female-only, and male-only models.
+
+```{r}
+preds_p <- list.files("results","_predictions.csv")
+preds_f <- list.files("pub_results","_predictions_F.csv")
+preds_m <- list.files("pub_results","_predictions_M.csv")
+
+pred_files <- data.frame(dir=c(rep("results/",39),rep("pub_results/",39*2)),
+                         path=c(preds_p,preds_f,preds_m))
+
+misclass <- as.data.frame(matrix(nrow=nrow(pred_files), ncol=6))
+names(misclass) <- c("var","sex","mtype","n_mc", "medrecs","total_n")
+counter = 0
+
+for(i in 1:nrow(pred_files)) {
+  path <- pred_files[i,"path"]
+  
+  var <- str_remove_all(path,"_|lm|nls|predictions|.csv")
+  
+  if (grepl("_F|_M",path)) {
+    misclass[i,"sex"] <- ifelse(grepl("_F",path),"Female","Male")
+    misclass[i,"var"] <- str_sub(var, end=-2)
+  } else {
+    misclass[i,"sex"] <- "Pooled"
+    misclass[i,"var"] <- var
+  }
+  
+  misclass[i,"mtype"] <- ifelse(grepl("lm",path),"Linear","Nonlinear")
+  
+  full_path <- paste0(pred_files[i,"dir"], path)
+  pred_df <- read.csv(full_path)
+  
+  mc_temp <- pred_df %>% filter(!(stature <= hi & stature >= lo))
+  
+  misclass[i,"n_mc"] <- nrow(mc_temp)
+  misclass[i,"medrecs"] <- paste(mc_temp$medrec,collapse=", ")
+  misclass[i,"total_n"] <- nrow(na.omit(pred_df))
+  
+  counter = counter + nrow(pred_df)
+}
+
+# Facet with bone on the x, measurement type on the y, 
+# m_type on the x, sex on the y,
+# balloon size based on n_mc
+
+misclass %<>% mutate(measure = ifelse(grepl("step",var),"Multiple",
+                                     ifelse(grepl("DL|upper|lower",var),"Length",
+                                            ifelse(grepl("PB",var),"Proximal",
+                                                   ifelse(grepl("MSB",var),"Midshaft","Distal")))))
+misclass %<>% mutate(bone = ifelse(grepl("step",var),"Multivariate",
+                            ifelse(grepl("upper",var),"Upper Limb",
+                            ifelse(grepl("lower",var),"Lower Limb",
+                            ifelse(grepl("^FB",var),"Fibula",
+                            ifelse(grepl("^F",var),"Femur",
+                            ifelse(grepl("^T",var),"Tibia",
+                            ifelse(grepl("^H",var),"Humerus",
+                            ifelse(grepl("^R",var),"Radius","Ulna")))))))))
+
+misclass$bone <- factor(misclass$bone, levels=c("Humerus","Radius","Ulna",
+                                                "Upper Limb",
+                                              "Femur","Tibia","Fibula",
+                                              "Lower Limb",
+                                              "Multivariate"))
+misclass$measure <- factor(misclass$measure, levels=c("Length","Proximal",
+                                                    "Midshaft","Distal","Multiple"))
+saveRDS(misclass, "results/misclassifieds.rds")
+
+```
+
+```{r eval=T, echo=F}
+misclass <- readRDS("results/misclassifieds.rds")
+```
+
+Reformat the data to identify the number of times each individual is misclassified.
+
+```{r}
+mc_vec <- c()
+
+for (i in 1:nrow(misclass)) {
+  mc_vec <- c(mc_vec, str_split(misclass[i,"medrecs"], ", ")[[1]])
+}
+
+mc_df <- data.frame(medrec=unique(mc_vec), n=rep(NA, length(unique(mc_vec))))
+
+for (j in 1:nrow(mc_df)) {
+  mc_df[j,"n"] <- length(grep(mc_df$medrec[j], mc_vec))
+}
+
+test <- readRDS("data/test.rds") %>% select(medrec=SVAD_medrec, SEX:lower)
+
+mc_df2 <-  inner_join(mc_df, test)
+head(mc_df2)
+
+saveRDS(mc_df2[order(mc_df2$n, decreasing=T),], "results/mc_demo.rds")
+```
+
+```{r eval=T, echo=F}
+mc_df2 <- readRDS("results/mc_demo.rds")
+head(mc_df2)
+```
+
+
+# Data Visualization {#viz}
+
+The following code is used to generate the figures included in the manuscript. As is true with the analysis portion of this document, the code is written using only the pooled data, but the same figures are also produced using female- and male-only datasets and are included in the supplement. 
+
+## Figure 1
+```{r Figure-1, eval=T}
+data <- rbind(train %>% mutate(type="Training"),
+              test %>% mutate(type="Testing"))
+data$type <- factor(data$type, levels=c("Training","Testing"))
+
+ggplot(data, aes(x=as.integer(agey))) + elaine_theme + 
+  geom_bar(aes(fill=SEX), color="black") + 
+  facet_grid(type ~., scales="free") + 
+  labs(x=xlab, y="Count", fill=NULL) + 
+  scale_fill_manual(values=colors[c(3,5)]) + 
+  scale_x_continuous(breaks=0:20) +
+  theme(legend.position="top")
+
+```
+
+## Figure 2
+```{r Figure-2, eval=T, fig.height=5}
+hdl_eg <- ggplot(data) + elaine_theme + 
+  geom_point(aes(x=HDL, y=stature, color=SEX), alpha=0.6, size=3) + 
+  labs(x="Humerus Length (mm)", y="Stature (cm)", title="a)") + 
+  scale_color_manual(values=colors[c(3,5)]) + 
+  theme(plot.title=element_text(hjust=0),
+        legend.position="none")
+
+hmsb_eg <- ggplot(data) + elaine_theme + 
+  geom_point(aes(x=HMSB, y=stature, color=SEX), alpha=0.6, size=3) + 
+  labs(x="Humerus Midshaft Breadth (mm)", y="Stature (cm)", title="b)") + 
+  scale_color_manual(values=colors[c(3,5)]) + 
+  theme(plot.title=element_text(hjust=0),
+        legend.position="none")
+
+grid.arrange(hdl_eg, hmsb_eg, ncol=2)
+```
+
+
+## Figure 3
+```{r Figure-3, eval=T}
+ggplot(perf_df %>% filter(sex=="Pooled", bone != "Multivariate")) + elaine_theme + 
+  geom_linerange(aes(x=model, ymin=80, ymax=test_acc*100, color=MAD), lwd=1) + 
+  geom_point(aes(x=model, y=test_acc*100, color=MAD), size=4) + 
+  geom_hline(yintercept=95, color="#ED2B2A", lty="dashed") + 
+  facet_grid(cols=vars(bone), rows=vars(measure)) + 
+  scale_y_continuous(expand=expansion(mult=c(0,0.1)), limits=c(80,100), 
+                     breaks=seq(80,100,by=5)) + 
+  scale_color_gradient(low="#AD1EFF", high="#F0D6FF", limits=c(2,19)) + 
+  labs(x="Model Type", y="Testing Accuracy (%)", color="MAD (cm)") + 
+  theme(axis.text.x=element_text(angle=45, hjust=1))
+```
+
+## Figure 4
+```{r Figure-4, eval=T, fig.height=6, fig.width=8}
+ggplot(perf_df %>% filter(bone=="Multivariate")) + elaine_theme + 
+  geom_linerange(aes(x=sex, ymin=80, ymax=test_acc*100, color=sex), lwd=1) + 
+  geom_point(aes(x=sex, y=test_acc*100, color=sex), size=4) + 
+  geom_label(aes(x=sex, y=85, 
+                       label=paste0("MAD: ",round(MAD,1)))) + 
+  geom_hline(yintercept=95, color="#ED2B2A", lty="dashed") + 
+  facet_grid(cols=vars(bone), rows=vars(measure)) + 
+  scale_y_continuous(expand=expansion(mult=c(0,0.1)), limits=c(80,100), 
+                     breaks=seq(80,100,by=5)) + 
+  scale_color_manual(values=c(colors[5],"#AD1EFF")) + 
+  labs(x="Sample Demographic", y="Testing Accuracy (%)") + 
+  theme(legend.position="none")
+```
+
+## Figure 5
+```{r Figure-5, eval=T}
+ggplot(misclass[-55,]) + elaine_theme + 
+  geom_point(aes(x=mtype, y=sex, color=sex), pch=15, size=10) +
+  geom_text(aes(x=mtype, y=sex, label=paste0(round(n_mc/total_n,2)*100,"%")), color="black", fontface="bold") + 
+  facet_grid(rows=vars(measure), cols=vars(bone)) + 
+  scale_color_manual(values=c(colors[c(3,5)], "#C35CFF")) + 
+  labs(x="Model Type", y="Sample Demographics") + 
+  theme(legend.position="none")
+```
+
+## Figure 6
+```{r Figure-6, eval=T}
+ggplot(mc_df2) + elaine_theme + 
+  geom_point(aes(x=agey, y=stature, color=SEX, size=n), pch=18) +
+  geom_text_repel(data=mc_df2 %>% filter(n>=15), aes(x=agey, y=stature, label=n),
+                  max.overlaps=Inf, min.segment.length=0, box.padding=0.5) +
+  scale_color_manual(values=colors[c(3,5)]) + 
+  labs(x="Age (years)", y="Known Stature (cm)") + 
+  theme(legend.position="none")
+```
+
+## Figure 7
+```{r Figure-7, eval=T, fig.height=5}
+mc_over_15 <- mc_df2 %>% filter(n >= 15)
+
+hdl <- ggplot(test) + elaine_theme + 
+  geom_point(aes(x=HDL, y=stature), fill="grey", pch=21, alpha=0.4, size=3) + 
+  geom_point(data=mc_over_15, aes(x=HDL, y=stature),
+             fill="red", pch=21, size=6) + 
+  geom_label_repel(data=mc_over_15, aes(x=HDL, y=stature, label=n),
+                   box.padding=0.5, max.overlaps=Inf) + 
+  labs(x="Humerus Length (mm)", y="Stature (cm)")
+
+hmsb <- ggplot(test) + elaine_theme + 
+  geom_point(aes(x=HMSB, y=stature), fill="grey", pch=21, alpha=0.4, size=3) + 
+  geom_point(data=mc_over_15, aes(x=HMSB, y=stature),
+             fill="red", pch=21, size=6) + 
+  geom_label_repel(data=mc_over_15, aes(x=HMSB, y=stature, label=n),
+                   box.padding=0.5, max.overlaps=Inf) + 
+  labs(x="Humerus Midshaft Breadth (mm)", y="Stature (cm)")
+
+grid.arrange(hdl, hmsb, ncol=2)
+
+```
+
+## Figure 8
+```{r Figure-8, eval=T}
+# Top 3 Linear
+rdl_lm <- read.csv("results/RDL_lm_predictions.csv") %>% 
+  mutate(var="Radius Length", type="Linear")
+tdl_lm <- read.csv("results/TDL_lm_predictions.csv") %>% 
+  mutate(var="Tibia Length", type="Linear") 
+ul_lm <- read.csv("results/upper_lm_predictions.csv") %>% 
+  mutate(var="Upper Limb Length", type="Linear") 
+
+# Top 3 Nonlinear
+fbdl_nl <- read.csv("results/FBDL_nls_predictions.csv") %>% 
+  mutate(var="Fibula Length", type="Nonlinear")
+rdl_nl <- read.csv("results/RDL_nls_predictions.csv") %>%
+  mutate(var="Radius Length", type="Nonlinear")
+ul_nl <- read.csv("results/upper_nls_predictions.csv") %>% 
+  mutate(var="Upper Limb Length", type="Nonlinear")
+
+ta_df <- rbind(rdl_lm, tdl_lm, ul_lm, fbdl_nl, rdl_nl, ul_nl)  # combine
+
+# Plot
+ggplot(ta_df) + elaine_theme + 
+  geom_hline(yintercept=5, color="grey85", lty="dashed", size=1) + 
+  geom_hline(yintercept=-5, color="grey85", lty="dashed", size=1) + 
+  geom_smooth(aes(x=stature, y=resid, color=var), se=F, size=3) + 
+  facet_grid(type~.) + theme(legend.position="top") + 
+  scale_color_manual(values=colors[c(2,4:6)]) + 
+  labs(x="Stature (cm)", y="Residuals (cm)", color=NULL) + 
+  scale_x_continuous(limits=c(34,194), 
+                     breaks=seq(34,194,by=20), expand=c(0,0)) +
+  scale_y_continuous(breaks=seq(-10,15,by=5)) + 
+  theme(legend.position="top", legend.text=element_text(size=16),
+        strip.text=element_text(size=16))
+
+```
+
+## Figure 9
+```{r Figure-9, eval=T}
+# HDB nonlinear and linear predictions
+hdb_nls <- read.csv("results/HDB_nls_predictions.csv") %>% 
+  mutate(type="Nonlinear")
+hdb_lm <- read.csv("results/HDB_lm_predictions.csv") %>% 
+  mutate(type="Linear")
+
+# Combine with age
+hdb_df <- rbind(hdb_nls, hdb_lm)
+hdb_df <- left_join(hdb_df, 
+                    test %>% select(medrec=SVAD_medrec,agey), by="medrec")
+
+# Plot
+ggplot(hdb_df) + elaine_theme + 
+  geom_rect(aes(xmin=50, xmax=100, ymin=0, ymax=250),
+            fill="#fff689", alpha=0.5) + 
+  geom_abline(slope=1, intercept=0, color="grey85") + 
+  geom_linerange(aes(x=stature, ymin=lo, ymax=hi),
+                 color=colors[3], lwd=1) + 
+  geom_point(aes(x=stature, y=point), size=2) + 
+  facet_grid(rows=vars(type)) + 
+  labs(x="Known Stature (cm)", y="Point Estimate (cm)")
+```
+
+## Figure 10
+```{r Figure-10, eval=T}
+hdb_df %>% filter(stature <= 100 & stature >= 50) %>% 
+  ggplot() + elaine_theme + 
+    geom_linerange(aes(x=agey, ymin=stature, ymax=point), size=1) + 
+    geom_point(aes(x=agey, y=stature, color="known"), 
+               size=4, alpha=0.5, pch=18) + 
+    geom_point(aes(x=agey, y=point, color="est"), 
+               size=4, alpha=0.5, pch=18) + 
+    facet_grid(type~.) + 
+    scale_color_manual(values=c("known"=colors[1], "est"=colors[6]), 
+                      labels=c("Known Stature", "Estimated Stature")) + 
+    theme(legend.position="top") + 
+    labs(x=xlab, y="Stature (cm)", color=NULL)
+```
+
+
+
