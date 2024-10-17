@@ -19,20 +19,20 @@ There are two ways to add this repository to a local system:
   
   ```console
 cd "file/path/to/desired/repository/location"  # set file location 
-git clone https://github.com/ElaineYChu/chu-and-stull_nonlinear-stature  # clone the repository
-cd chu-and-stull_nonlinear-stature  # enter the new directory
+git clone https://github.com/ElaineYChu/chu-and-stull_implications-subadult-stature  # clone the repository
+cd chu-and-stull_implications-subadult-stature  # enter the new directory
 ls  # check that there are files in the new directory
 ```
 
 2. If you do not have or are unfamiliar with terminal command systems, you may also locate and click on the green button in this repository labeled "Code" with a downward arrow and select "Download ZIP." This will download a zipped file to your local system (probably found in your *Downloads* folder). Extract the embedded folder ("subadult_sv_2022-main") and relocate it to your desired folder location. 
 
-**Next, rename the folder to "chu-and-stull_nonlinear-stature" before proceeding further.**  
+**Next, rename the folder to "chu-and-stull_implications-subadult-stature" before proceeding further.**  
 
-Inside the **chu-and-stull_nonlinear-stature** folder, you should find the following folders and files:  
+Inside the **chu-and-stull_implications-subadult-stature** folder, you should find the following folders and files:  
 
 * [data](data) - A folder containing the original subsetted data from SVAD and subsequent files after data manipulation  
 * [results](results) - A folder housing the resulting files from all analyses  
-* [documentation](chu-and-stull_nonlinear-stature_vignette.Rmd) - A RMarkdown file containing all code and analyses to replicate publication results. To view a rendered .HTML version of this file, [click HERE](https://rpubs.com/elainechu/chu-and-stull_nonlinear-stature)  
+* [documentation](chu-and-stull_implications-subadult-stature_vignette.Rmd) - A RMarkdown file containing all code and analyses to replicate publication results. To view a rendered .HTML version of this file, [click HERE](https://rpubs.com/elainechu/chu-and-stull_implications-subadult-stature)  
 * [elaine_theme](elaine_theme.R) - A personalized theme for plots using `ggplot2`  
 
 
