@@ -1,13 +1,13 @@
 # Contents
 
 This repository contains full documentation for the paper:
-> Chu, E.Y. & Stull, K.E. (In press). An investigation of the relationship between long bone measurements and stature: Implications for estimating skeeltal stature in subadults. International Journal of Legal Medicine
+> Chu, E.Y. & Stull, K.E. (In press). An investigation of the relationship between long bone measurements and stature: Implications for estimating skeletal stature in subadults. International Journal of Legal Medicine
 
 To run the code for this paper locally, please ensure that [R](https://cran.r-project.org/), and optionally [RStudio](https://www.rstudio.com/), are installed on the local system. 
 
 ### How to cite
 Please cite this compendium as:
-> Chu, E.Y. & Stull, K.E. (2024). Compendium of R code for “An investigation of the relationship between long bone measurements and stature: Implications for estimating skeeltal stature in subadults”. Accessed *Current Date*
+> Chu, E.Y. & Stull, K.E. (2024). Compendium of R code for “An investigation of the relationship between long bone measurements and stature: Implications for estimating skeletal stature in subadults”. Accessed *Current Date*
 
 ## The data
 All data are from the [Subadult Virtual Anthropology Database](https://zenodo.org/communities/svad) (SVAD). Specifically, this project uses portions of data from the [United States](https://zenodo.org/record/5193208#.YmWLkdrMLao), which is also directly provided in the [data folder](data).
